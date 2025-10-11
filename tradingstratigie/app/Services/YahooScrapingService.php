@@ -330,4 +330,119 @@ class YahooScrapingService
 
         return null;
     }
+
+    /**
+     * Scrape earnings date from Yahoo Finance
+     */
+    public function scrapeEarningsDate(string $symbol): ?array
+    {
+        try {
+            $url = "{$this->baseUrl}/quote/{$symbol}";
+            
+            $response = Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language' => 'en-US,en;q=0.5',
+                'Connection' => 'keep-alive',
+            ])->timeout(30)->get($url);
+
+            if (!$response->successful()) {
+                Log::warning("Failed to scrape Yahoo Finance earnings for {$symbol}", [
+                    'status' => $response->status()
+                ]);
+                return null;
+            }
+
+            $html = $response->body();
+            return $this->parseEarningsDate($html, $symbol);
+
+        } catch (\Exception $e) {
+            Log::error("Exception while scraping earnings date for {$symbol}", [
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Parse earnings date from Yahoo Finance HTML
+     */
+    private function parseEarningsDate(string $html, string $symbol): ?array
+    {
+        try {
+            // Method 1: Look for "Earnings Date" in the page
+            // Pattern: <span>Earnings Date</span>...<span>Oct 22, 2025 - Oct 28, 2025</span>
+            if (preg_match('/Earnings Date.*?<span[^>]*>([^<]+)<\/span>/s', $html, $matches)) {
+                $dateText = trim($matches[1]);
+                
+                // Handle date ranges like "Oct 22, 2025 - Oct 28, 2025"
+                if (strpos($dateText, ' - ') !== false) {
+                    $dates = explode(' - ', $dateText);
+                    $earningsDate = trim($dates[0]); // Use the first date
+                } else {
+                    $earningsDate = $dateText;
+                }
+                
+                // Try to parse the date
+                try {
+                    $parsedDate = \Carbon\Carbon::parse($earningsDate);
+                    
+                    // Only return future dates
+                    if ($parsedDate->isFuture()) {
+                        return [
+                            'earnings_date' => $parsedDate->format('Y-m-d'),
+                            'date_text' => $dateText,
+                            'source' => 'yahoo_finance',
+                            'scraped_at' => now()->toISOString()
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("Failed to parse earnings date for {$symbol}: {$earningsDate}");
+                }
+            }
+
+            // Method 2: Try to find it in JSON data embedded in the page
+            if (preg_match('/"earningsTimestamp":\{"raw":(\d+)/', $html, $matches)) {
+                $timestamp = (int) $matches[1];
+                $earningsDate = \Carbon\Carbon::createFromTimestamp($timestamp);
+                
+                if ($earningsDate->isFuture()) {
+                    return [
+                        'earnings_date' => $earningsDate->format('Y-m-d'),
+                        'date_text' => $earningsDate->format('M d, Y'),
+                        'source' => 'yahoo_finance_json',
+                        'scraped_at' => now()->toISOString()
+                    ];
+                }
+            }
+
+            // Method 3: Look for "earningsDate" in JSON
+            if (preg_match('/"earningsDate":\{"fmt":"([^"]+)"/', $html, $matches)) {
+                $dateText = $matches[1];
+                try {
+                    $parsedDate = \Carbon\Carbon::parse($dateText);
+                    
+                    if ($parsedDate->isFuture()) {
+                        return [
+                            'earnings_date' => $parsedDate->format('Y-m-d'),
+                            'date_text' => $dateText,
+                            'source' => 'yahoo_finance_json',
+                            'scraped_at' => now()->toISOString()
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("Failed to parse JSON earnings date for {$symbol}: {$dateText}");
+                }
+            }
+
+            Log::info("No future earnings date found for {$symbol}");
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error("Error parsing earnings date for {$symbol}", [
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
 }

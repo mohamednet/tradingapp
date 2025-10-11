@@ -138,7 +138,7 @@
         <!-- Active Filters Display -->
         <div class="mt-4 flex flex-wrap gap-2" x-show="hasActiveFilters()">
             <span class="text-sm text-gray-600">Active filters:</span>
-            <template x-for="filter in getActiveFilters()" :key="filter.key">
+            <template x-for="(filter, filterIndex) in getActiveFilters()" :key="'filter_' + filterIndex + '_' + filter.key">
                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                     <span x-text="filter.label"></span>
                     <button @click="clearFilter(filter.key)" class="ml-1 text-blue-600 hover:text-blue-800">
@@ -189,7 +189,7 @@
         <!-- Opportunities Grid -->
         <div x-show="!loading && filteredData.length > 0" class="p-6">
             <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                <template x-for="opportunity in filteredData" :key="opportunity.symbol">
+                <template x-for="(opportunity, index) in filteredData" :key="opportunity.symbol + '_' + index">
                     <div class="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow duration-200 animate-fade-in">
                         <!-- Header -->
                         <div class="flex items-start justify-between mb-4">
@@ -208,12 +208,12 @@
                         <div class="space-y-3 mb-4">
                             <div class="flex justify-between items-center">
                                 <span class="text-sm text-gray-600">Confidence Score:</span>
-                                <span class="font-semibold" x-text="opportunity.confidence_score + ' points'"></span>
+                                <span class="font-semibold" x-text="(opportunity.confidence_score || 0) + ' points'"></span>
                             </div>
                             
                             <div class="flex justify-between items-center" x-show="opportunity.eligible">
                                 <span class="text-sm text-gray-600">Days to Earnings:</span>
-                                <span class="font-semibold" x-text="Math.round(opportunity.days_until_earnings) + ' days'"></span>
+                                <span class="font-semibold" x-text="Math.round(opportunity.days_until_earnings || 0) + ' days'"></span>
                             </div>
                             
                             <div class="flex justify-between items-center" x-show="opportunity.eligible">
@@ -223,15 +223,15 @@
                             
                             <div class="flex justify-between items-center" x-show="opportunity.eligible">
                                 <span class="text-sm text-gray-600">Position Size:</span>
-                                <span class="font-semibold text-sm" x-text="opportunity.recommended_position_size"></span>
+                                <span class="font-semibold text-sm" x-text="opportunity.recommended_position_size || 'N/A'"></span>
                             </div>
                         </div>
 
                         <!-- Supporting Factors -->
-                        <div x-show="opportunity.supporting_factors && opportunity.supporting_factors.length > 0" class="mb-4">
+                        <div x-show="opportunity.supporting_factors && Array.isArray(opportunity.supporting_factors) && opportunity.supporting_factors.length > 0" class="mb-4">
                             <h5 class="text-sm font-medium text-gray-700 mb-2">Supporting Factors:</h5>
                             <ul class="space-y-1">
-                                <template x-for="factor in opportunity.supporting_factors.slice(0, 2)" :key="factor">
+                                <template x-for="(factor, factorIndex) in (opportunity.supporting_factors || []).slice(0, 2)" :key="'factor_' + factorIndex + '_' + factor">
                                     <li class="text-xs text-green-600 flex items-start">
                                         <i class="fas fa-check text-green-500 mr-2 mt-0.5 text-xs"></i>
                                         <span x-text="factor"></span>
@@ -241,10 +241,10 @@
                         </div>
 
                         <!-- Risk Warnings -->
-                        <div x-show="opportunity.risk_warnings && opportunity.risk_warnings.length > 0" class="mb-4">
+                        <div x-show="opportunity.risk_warnings && Array.isArray(opportunity.risk_warnings) && opportunity.risk_warnings.length > 0" class="mb-4">
                             <h5 class="text-sm font-medium text-gray-700 mb-2">Risk Warnings:</h5>
                             <ul class="space-y-1">
-                                <template x-for="warning in opportunity.risk_warnings.slice(0, 2)" :key="warning">
+                                <template x-for="(warning, warningIndex) in (opportunity.risk_warnings || []).slice(0, 2)" :key="'warning_' + warningIndex + '_' + warning">
                                     <li class="text-xs text-red-600 flex items-start">
                                         <i class="fas fa-exclamation-triangle text-red-500 mr-2 mt-0.5 text-xs"></i>
                                         <span x-text="warning"></span>
@@ -326,6 +326,7 @@ function earningsStrategy() {
             // Apply time period filter
             if (this.filters.time_period !== 'all') {
                 filtered = filtered.filter(opp => {
+                    // Only apply time filter to eligible companies with earnings data
                     if (!opp.eligible || !opp.days_until_earnings) return false;
                     
                     const days = opp.days_until_earnings;

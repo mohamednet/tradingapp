@@ -93,34 +93,71 @@ class DataScrapingService
     }
 
     /**
-     * Update earnings data using Finnhub
+     * Update earnings data using Yahoo Finance
      */
     private function updateEarningsData(Company $company): void
     {
         try {
-            // Get earnings calendar
-            $earningsData = $this->finnhubService->getEarnings($company->symbol);
+            // Use Yahoo Finance scraping for earnings dates
+            $scrapingService = new \App\Services\YahooScrapingService();
+            $earningsData = $scrapingService->scrapeEarningsDate($company->symbol);
             
             if (!$earningsData) {
-                Log::warning("No earnings data found for {$company->symbol}");
+                Log::info("No upcoming earnings date found for {$company->symbol}");
+                
+                // Delete old earnings records that are in the past
+                $this->cleanupOldEarnings($company);
                 return;
             }
 
-            // Get earnings estimates
+            // Get earnings estimates from Finnhub for additional context
             $estimatesData = $this->finnhubService->getEarningsEstimates($company->symbol);
 
-            // Process and save earnings data
-            if (isset($earningsData['earningsCalendar']) && !empty($earningsData['earningsCalendar'])) {
-                foreach ($earningsData['earningsCalendar'] as $earning) {
-                    $this->saveEarningRecord($company, $earning, $estimatesData);
-                }
-            }
+            // Save the earnings record
+            $this->saveEarningRecordFromYahoo($company, $earningsData, $estimatesData);
+            
+            // Clean up old earnings records
+            $this->cleanupOldEarnings($company);
 
         } catch (\Exception $e) {
             Log::error("Failed to update earnings data for {$company->symbol}", [
                 'error' => $e->getMessage()
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * Clean up old earnings records that are in the past or outdated
+     */
+    private function cleanupOldEarnings(Company $company): void
+    {
+        // Delete earnings that are in the past
+        $deletedPast = Earning::where('company_id', $company->id)
+            ->where('earnings_release_date', '<', now())
+            ->delete();
+            
+        // Keep only the most recently created record if there are multiple future dates
+        $futureEarnings = Earning::where('company_id', $company->id)
+            ->where('earnings_release_date', '>=', now())
+            ->orderBy('created_at', 'desc')
+            ->get();
+            
+        if ($futureEarnings->count() > 1) {
+            // Keep only the most recently created record (most up-to-date)
+            $toKeep = $futureEarnings->first()->id;
+            $deletedDuplicates = Earning::where('company_id', $company->id)
+                ->where('earnings_release_date', '>=', now())
+                ->where('id', '!=', $toKeep)
+                ->delete();
+                
+            if ($deletedDuplicates > 0) {
+                Log::info("Removed {$deletedDuplicates} duplicate/outdated earnings for {$company->symbol}");
+            }
+        }
+            
+        if ($deletedPast > 0) {
+            Log::info("Cleaned up {$deletedPast} past earnings records for {$company->symbol}");
         }
     }
 
@@ -193,7 +230,39 @@ class DataScrapingService
     }
 
     /**
-     * Save earnings record to database
+     * Save earnings record from Yahoo Finance
+     */
+    private function saveEarningRecordFromYahoo(Company $company, array $earningsData, ?array $estimatesData): void
+    {
+        $earningsDate = Carbon::parse($earningsData['earnings_date']);
+        
+        // Check if record already exists
+        $existingEarning = Earning::where('company_id', $company->id)
+            ->where('earnings_release_date', $earningsDate)
+            ->first();
+
+        $data = [
+            'company_id' => $company->id,
+            'earnings_release_date' => $earningsDate,
+            'estimated_revenue' => null, // Yahoo doesn't provide this directly
+            'actual_revenue' => null,
+            'api_data' => [
+                'yahoo_earnings' => $earningsData,
+                'finnhub_estimates' => $estimatesData
+            ]
+        ];
+
+        if ($existingEarning) {
+            $existingEarning->update($data);
+            Log::info("Updated earnings record for {$company->symbol}: {$earningsDate->format('Y-m-d')}");
+        } else {
+            Earning::create($data);
+            Log::info("Created earnings record for {$company->symbol}: {$earningsDate->format('Y-m-d')}");
+        }
+    }
+
+    /**
+     * Save earnings record to database (legacy Finnhub method - kept for compatibility)
      */
     private function saveEarningRecord(Company $company, array $earningData, ?array $estimatesData): void
     {
