@@ -162,29 +162,60 @@ class DataScrapingService
     }
 
     /**
-     * Update financial data for a company using web scraping
+     * Update financial data for a company using Yahoo Finance API
      */
     private function updateFinancialData(Company $company): void
     {
         $startTime = microtime(true);
         
         try {
-            // Use YahooScrapingService for reliable data
-            $scrapingService = new \App\Services\YahooScrapingService();
+            // Use Yahoo Finance API for accurate data
+            $quoteData = $this->yahooService->getQuote($company->symbol);
             
-            // Get stock data from scraping
-            $stockData = $scrapingService->scrapeStockData($company->symbol);
-            
-            // Get analyst data from Analysis page
-            $analystData = $scrapingService->scrapeAnalystData($company->symbol);
-            
-            // Calculate price performance if we have current price
-            $performance = [];
-            if ($stockData && $stockData['current_price']) {
-                $performance = $scrapingService->calculatePricePerformance($company->symbol, $stockData['current_price']);
+            if (!$quoteData || !isset($quoteData['chart']['result'][0]['meta']['regularMarketPrice'])) {
+                Log::warning("No quote data found for {$company->symbol}");
+                return;
             }
             
-            $this->saveScrapedFinancialData($company, $stockData, $analystData, $performance);
+            // Extract price from API response
+            $meta = $quoteData['chart']['result'][0]['meta'];
+            $currentPrice = $meta['regularMarketPrice'];
+            $marketCap = $meta['marketCap'] ?? null;
+            $volume = $meta['regularMarketVolume'] ?? null;
+            
+            // Get historical data for performance calculation
+            $historicalData = $this->yahooService->getHistoricalData($company->symbol, 30);
+            
+            $performance = [];
+            if ($historicalData) {
+                $performance['price_performance_1week'] = $this->yahooService->calculatePricePerformance($historicalData, 7);
+                $performance['price_performance_1month'] = $this->yahooService->calculatePricePerformance($historicalData, 30);
+            }
+            
+            // Try to get analyst data (may fail due to auth)
+            $priceTarget = null;
+            try {
+                $analystData = $this->yahooService->getAnalystData($company->symbol);
+                if ($analystData && isset($analystData['quoteSummary']['result'][0]['financialData']['targetMeanPrice']['raw'])) {
+                    $priceTarget = $analystData['quoteSummary']['result'][0]['financialData']['targetMeanPrice']['raw'];
+                }
+            } catch (\Exception $e) {
+                // Analyst data is optional, continue without it
+                Log::debug("Could not fetch analyst data for {$company->symbol} (optional)");
+            }
+            
+            // Prepare stock data array
+            $stockData = [
+                'current_price' => $currentPrice,
+                'market_cap' => $marketCap,
+                'volume' => $volume
+            ];
+            
+            $analystDataArray = [
+                'price_target_mean' => $priceTarget
+            ];
+            
+            $this->saveScrapedFinancialData($company, $stockData, $analystDataArray, $performance);
             
             $executionTime = microtime(true) - $startTime;
             $this->logScrapingSuccess($company, 'financial_data', $executionTime);
@@ -201,10 +232,8 @@ class DataScrapingService
      */
     private function saveScrapedFinancialData(Company $company, ?array $stockData, ?array $analystData, array $performance): void
     {
-        // Check if record exists for today
-        $existingData = CompanyFinancialData::where('company_id', $company->id)
-            ->whereDate('created_at', Carbon::today())
-            ->first();
+        // Get existing record for this company (regardless of date)
+        $existingData = CompanyFinancialData::where('company_id', $company->id)->first();
 
         $data = [
             'company_id' => $company->id,
@@ -223,9 +252,13 @@ class DataScrapingService
         ];
 
         if ($existingData) {
+            // Update existing record with fresh data
             $existingData->update($data);
+            \Log::info("Updated financial data for {$company->symbol}", ['price' => $data['current_stock_price']]);
         } else {
+            // Create new record
             CompanyFinancialData::create($data);
+            \Log::info("Created financial data for {$company->symbol}", ['price' => $data['current_stock_price']]);
         }
     }
 

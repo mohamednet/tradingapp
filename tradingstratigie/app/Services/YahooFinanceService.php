@@ -116,10 +116,15 @@ class YahooFinanceService
                 return $response->json();
             }
 
-            Log::warning("Yahoo Finance analyst API failed for {$symbol}", [
-                'status' => $response->status(),
-                'response' => $response->body()
-            ]);
+            // 401 errors are common for analyst data - don't log as warning
+            if ($response->status() === 401) {
+                Log::debug("Yahoo Finance analyst API requires auth for {$symbol} (skipping)");
+            } else {
+                Log::warning("Yahoo Finance analyst API failed for {$symbol}", [
+                    'status' => $response->status(),
+                    'response' => $response->body()
+                ]);
+            }
 
             return null;
         } catch (\Exception $e) {

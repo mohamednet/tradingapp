@@ -66,6 +66,8 @@ class EarningsStrategyService
         $analysis = [
             'symbol' => $company->symbol,
             'name' => $company->name,
+            'current_price' => $company->financialData?->current_stock_price,
+            'market_cap' => $company->financialData?->market_cap,
             'eligible' => false,
             'confidence_rating' => 'Not Eligible',
             'confidence_score' => 0,

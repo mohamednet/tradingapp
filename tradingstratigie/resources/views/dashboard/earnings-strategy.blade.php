@@ -196,6 +196,7 @@
                             <div>
                                 <h4 class="text-lg font-semibold text-gray-900" x-text="opportunity.symbol"></h4>
                                 <p class="text-sm text-gray-600" x-text="opportunity.name"></p>
+                                <p class="text-lg font-bold text-blue-600 mt-1" x-show="opportunity.current_price" x-text="'$' + parseFloat(opportunity.current_price || 0).toFixed(2)"></p>
                             </div>
                             <div class="flex items-center space-x-2">
                                 <span class="px-2 py-1 rounded-full text-xs font-medium border"
@@ -304,6 +305,14 @@
 
                     <!-- Key Metrics Grid -->
                     <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Current Price</p>
+                            <p class="text-2xl font-bold text-blue-600" x-text="selectedOpportunity?.current_price ? '$' + parseFloat(selectedOpportunity.current_price).toFixed(2) : 'N/A'"></p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Market Cap</p>
+                            <p class="text-2xl font-bold text-gray-900" x-text="selectedOpportunity?.market_cap ? '$' + (parseFloat(selectedOpportunity.market_cap) / 1000000000).toFixed(2) + 'B' : 'N/A'"></p>
+                        </div>
                         <div class="bg-gray-50 p-4 rounded-lg">
                             <p class="text-sm text-gray-600 mb-1">Confidence Score</p>
                             <p class="text-2xl font-bold text-gray-900" x-text="(selectedOpportunity?.confidence_score || 0).toFixed(1) + ' points'"></p>
