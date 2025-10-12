@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate VAPID Keys</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .key-container {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            display: none;
+        }
+        .key-container.show {
+            display: block;
+        }
+        .key-label {
+            font-weight: bold;
+            color: #374151;
+            margin-bottom: 5px;
+        }
+        .key-value {
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            background: white;
+            padding: 10px;
+            border-radius: 3px;
+            border: 1px solid #d1d5db;
+            margin-bottom: 10px;
+        }
+        .copy-btn {
+            background: #10b981;
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        .copy-btn:hover {
+            background: #059669;
+        }
+        .instructions {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #92400e;
+        }
+        .instructions code {
+            background: #fde68a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .success {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            display: none;
+        }
+        .success.show {
+            display: block;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 VAPID Key Generator</h1>
+        <p class="subtitle">Generate VAPID keys for web push notifications</p>
+
+        <button onclick="generateKeys()">Generate VAPID Keys</button>
+
+        <div class="loading" id="loading">
+            <p>Generating keys...</p>
+        </div>
+
+        <div class="key-container" id="keys-container">
+            <div class="key-label">Public Key:</div>
+            <div class="key-value" id="public-key"></div>
+            <button class="copy-btn" onclick="copyToClipboard('public-key')">Copy Public Key</button>
+
+            <div class="key-label" style="margin-top: 20px;">Private Key:</div>
+            <div class="key-value" id="private-key"></div>
+            <button class="copy-btn" onclick="copyToClipboard('private-key')">Copy Private Key</button>
+        </div>
+
+        <div class="success" id="success-message">
+            <strong>✅ Keys generated successfully!</strong>
+            <p>Follow the instructions below to add them to your app.</p>
+        </div>
+
+        <div class="instructions">
+            <h3>📋 How to Add Keys to Your App</h3>
+            <ol>
+                <li>Open your <code>.env</code> file</li>
+                <li>Add these lines at the end:
+                    <pre style="background: #fde68a; padding: 10px; border-radius: 3px; margin: 10px 0;">
+# Web Push Notification Keys
+VAPID_PUBLIC_KEY=your_public_key_here
+VAPID_PRIVATE_KEY=your_private_key_here
+VAPID_SUBJECT=mailto:your-email@example.com</pre>
+                </li>
+                <li>Replace <code>your_public_key_here</code> with the Public Key above</li>
+                <li>Replace <code>your_private_key_here</code> with the Private Key above</li>
+                <li>Replace <code>your-email@example.com</code> with your actual email</li>
+                <li>Save the file and restart your server</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        async function generateKeys() {
+            const loading = document.getElementById('loading');
+            const container = document.getElementById('keys-container');
+            const success = document.getElementById('success-message');
+
+            loading.classList.add('show');
+            container.classList.remove('show');
+            success.classList.remove('show');
+
+            try {
+                // Generate VAPID keys using Web Crypto API
+                const keyPair = await crypto.subtle.generateKey(
+                    {
+                        name: 'ECDSA',
+                        namedCurve: 'P-256'
+                    },
+                    true,
+                    ['sign', 'verify']
+                );
+
+                // Export public key
+                const publicKeyRaw = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+                const publicKeyBase64 = arrayBufferToBase64Url(publicKeyRaw);
+
+                // Export private key
+                const privateKeyRaw = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+                const privateKeyBase64 = arrayBufferToBase64Url(privateKeyRaw);
+
+                // Display keys
+                document.getElementById('public-key').textContent = publicKeyBase64;
+                document.getElementById('private-key').textContent = privateKeyBase64;
+
+                loading.classList.remove('show');
+                container.classList.add('show');
+                success.classList.add('show');
+            } catch (error) {
+                loading.classList.remove('show');
+                alert('Error generating keys: ' + error.message + '\n\nPlease use the online generator at: https://web-push-codelab.glitch.me/');
+            }
+        }
+
+        function arrayBufferToBase64Url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+            return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✓ Copied!';
+                btn.style.background = '#059669';
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '#10b981';
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy. Please select and copy manually.');
+            });
+        }
+
+        // Auto-generate on load
+        window.addEventListener('load', () => {
+            setTimeout(generateKeys, 500);
+        });
+    </script>
+</body>
+</html>

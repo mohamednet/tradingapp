@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="">
+    <title>Test Notifications - Earnings Strategy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .notification-item {
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: .5;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-6xl mx-auto p-6">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-3xl font-bold mb-2">
+                <i class="fas fa-bell mr-2"></i>
+                Test Notification Sender
+            </h1>
+            <p class="text-blue-100">Automatically sends notifications for Very Good and Good opportunities</p>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-cog mr-2"></i>
+                    Control Panel
+                </h2>
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm text-gray-600">Status:</span>
+                    <span id="status" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm font-medium">
+                        Stopped
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <div class="text-sm text-blue-600 font-medium mb-1">Interval</div>
+                    <div class="flex items-center">
+                        <input type="number" id="interval" value="10" min="5" max="60" 
+                               class="w-20 px-3 py-2 border border-blue-200 rounded-lg mr-2">
+                        <span class="text-gray-600">seconds</span>
+                    </div>
+                </div>
+
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <div class="text-sm text-green-600 font-medium mb-1">Opportunities</div>
+                    <div class="text-2xl font-bold text-green-700" id="opp-count">0</div>
+                </div>
+
+                <div class="bg-purple-50 p-4 rounded-lg">
+                    <div class="text-sm text-purple-600 font-medium mb-1">Subscribers</div>
+                    <div class="text-2xl font-bold text-purple-700" id="sub-count">0</div>
+                </div>
+            </div>
+
+            <div class="flex space-x-3">
+                <button id="start-btn" onclick="startSending()" 
+                        class="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    <i class="fas fa-play mr-2"></i>
+                    Start Sending
+                </button>
+                <button id="stop-btn" onclick="stopSending()" disabled
+                        class="flex-1 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i class="fas fa-stop mr-2"></i>
+                    Stop
+                </button>
+                <button onclick="sendOnce()" 
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    Send Once
+                </button>
+            </div>
+        </div>
+
+        <!-- Current Opportunities -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                <i class="fas fa-chart-line mr-2"></i>
+                Current Opportunities
+            </h2>
+            <div id="opportunities-list" class="space-y-3">
+                <div class="text-center text-gray-500 py-8">
+                    <i class="fas fa-spinner fa-spin text-3xl mb-2"></i>
+                    <p>Loading opportunities...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification Log -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">
+                    <i class="fas fa-list mr-2"></i>
+                    Notification Log
+                </h2>
+                <button onclick="clearLog()" class="text-sm text-red-600 hover:text-red-700">
+                    <i class="fas fa-trash mr-1"></i>
+                    Clear Log
+                </button>
+            </div>
+            <div id="log" class="space-y-2 max-h-96 overflow-y-auto">
+                <div class="text-center text-gray-400 py-4">
+                    No notifications sent yet
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let intervalId = null;
+        let isRunning = false;
+        let iteration = 0;
+
+        // Load opportunities on page load
+        window.addEventListener('load', () => {
+            loadOpportunities();
+        });
+
+        async function loadOpportunities() {
+            try {
+                const response = await fetch('/api/test-notifications/opportunities');
+                const data = await response.json();
+
+                document.getElementById('opp-count').textContent = data.count;
+                document.getElementById('sub-count').textContent = data.subscribers;
+
+                const container = document.getElementById('opportunities-list');
+                
+                if (data.opportunities.length === 0) {
+                    container.innerHTML = `
+                        <div class="text-center text-gray-500 py-8">
+                            <i class="fas fa-inbox text-3xl mb-2"></i>
+                            <p>No "Very Good" or "Good" opportunities found</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = data.opportunities.map(opp => {
+                    const confidenceColor = {
+                        'Very Good': 'bg-green-100 text-green-800 border-green-200',
+                        'Good': 'bg-blue-100 text-blue-800 border-blue-200'
+                    }[opp.confidence_level] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+                    return `
+                        <div class="border ${confidenceColor} rounded-lg p-4 notification-item">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+                                    <div class="text-2xl font-bold">${opp.symbol}</div>
+                                    <div class="px-3 py-1 rounded-full text-sm font-medium ${confidenceColor}">
+                                        ${opp.confidence_level}
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm text-gray-600">Score: ${opp.confidence_score}</div>
+                                    <div class="text-sm text-gray-600">${opp.days_until_earnings} days</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Failed to load opportunities:', error);
+                addLog('❌ Failed to load opportunities: ' + error.message, 'error');
+            }
+        }
+
+        function startSending() {
+            if (isRunning) return;
+
+            const interval = parseInt(document.getElementById('interval').value) * 1000;
+            isRunning = true;
+            iteration = 0;
+
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('stop-btn').disabled = false;
+            document.getElementById('interval').disabled = true;
+            document.getElementById('status').textContent = 'Running';
+            document.getElementById('status').className = 'px-3 py-1 bg-green-200 text-green-700 rounded-full text-sm font-medium pulse';
+
+            addLog('🚀 Started sending notifications every ' + (interval/1000) + ' seconds', 'info');
+
+            // Send immediately
+            sendNotifications();
+
+            // Then send at intervals
+            intervalId = setInterval(sendNotifications, interval);
+        }
+
+        function stopSending() {
+            if (!isRunning) return;
+
+            clearInterval(intervalId);
+            isRunning = false;
+
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('stop-btn').disabled = true;
+            document.getElementById('interval').disabled = false;
+            document.getElementById('status').textContent = 'Stopped';
+            document.getElementById('status').className = 'px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm font-medium';
+
+            addLog('🛑 Stopped sending notifications', 'info');
+        }
+
+        async function sendOnce() {
+            await sendNotifications();
+        }
+
+        async function sendNotifications() {
+            iteration++;
+            const timestamp = new Date().toLocaleTimeString();
+
+            try {
+                addLog(`📊 Iteration #${iteration} - ${timestamp}`, 'info');
+
+                // Send real web push notifications via API
+                const response = await fetch('/api/test-notifications/send-opportunities', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                });
+
+                // Check if response is OK
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('API Error:', errorText);
+                    addLog(`❌ API Error (${response.status}): ${errorText.substring(0, 100)}`, 'error');
+                    return;
+                }
+
+                // Try to parse JSON
+                let result;
+                try {
+                    result = await response.json();
+                } catch (parseError) {
+                    const text = await response.text();
+                    console.error('JSON Parse Error:', text);
+                    addLog('❌ Invalid JSON response from server', 'error');
+                    return;
+                }
+
+                // Update counts
+                await loadOpportunities();
+
+                if (!result.success) {
+                    addLog('⚠️  ' + result.message, 'warning');
+                    return;
+                }
+
+                // Log results
+                const { results } = result;
+                if (results.success > 0) {
+                    addLog(`✅ Sent ${results.opportunities_sent} opportunities to ${results.success} subscriber(s)`, 'success');
+                }
+                if (results.failed > 0) {
+                    addLog(`⚠️  ${results.failed} notifications failed`, 'warning');
+                }
+                if (results.expired > 0) {
+                    addLog(`🗑️  Removed ${results.expired} expired subscriptions`, 'info');
+                }
+
+            } catch (error) {
+                console.error('Error sending notifications:', error);
+                addLog('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+
+            const colors = {
+                success: 'bg-green-50 border-green-200 text-green-800',
+                error: 'bg-red-50 border-red-200 text-red-800',
+                warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+                info: 'bg-blue-50 border-blue-200 text-blue-800'
+            };
+
+            const entry = document.createElement('div');
+            entry.className = `border ${colors[type]} rounded-lg p-3 notification-item`;
+            entry.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="text-sm">${message}</span>
+                    <span class="text-xs opacity-75">${timestamp}</span>
+                </div>
+            `;
+
+            // Remove "no notifications" message if exists
+            if (log.querySelector('.text-center')) {
+                log.innerHTML = '';
+            }
+
+            log.insertBefore(entry, log.firstChild);
+
+            // Keep only last 50 entries
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = `
+                <div class="text-center text-gray-400 py-4">
+                    No notifications sent yet
+                </div>
+            `;
+        }
+
+        // Request notification permission on load
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+    </script>
+</body>
+</html>

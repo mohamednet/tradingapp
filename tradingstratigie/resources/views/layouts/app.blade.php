@@ -6,6 +6,22 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Earnings Strategy Dashboard')</title>
     
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Earnings Anticipation Trading Strategy - Find trading opportunities before earnings announcements">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Earnings Strategy">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Favicon & App Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/images/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/images/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/images/icons/icon-512x512.png">
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -17,6 +33,9 @@
     
     <!-- Alpine.js -->
     <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- PWA Script -->
+    <script src="/js/pwa.js" defer></script>
     
     <style>
         .gradient-bg {
@@ -58,6 +77,22 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <!-- PWA Install Button -->
+                    <button id="pwa-install-btn" 
+                            onclick="window.pwaFunctions.installPWA()" 
+                            class="hidden bg-white text-blue-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors">
+                        <i class="fas fa-download mr-2"></i>
+                        Install App
+                    </button>
+                    
+                    <!-- Notification Toggle -->
+                    <button id="notification-toggle-btn" 
+                            onclick="toggleNotifications()" 
+                            class="bg-white bg-opacity-20 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-opacity-30 transition-colors">
+                        <i class="fas fa-bell mr-2"></i>
+                        <span id="notification-status">Enable Alerts</span>
+                    </button>
+                    
                     <span class="text-white text-sm">
                         <i class="fas fa-clock mr-1"></i>
                         Last Updated: <span id="last-updated">{{ now()->format('H:i') }}</span>
@@ -81,5 +116,59 @@
     </div>
 
     @stack('scripts')
+    
+    <script>
+        // Notification toggle handler
+        async function toggleNotifications() {
+            const statusEl = document.getElementById('notification-status');
+            const isSubscribed = await window.pwaFunctions.checkNotificationStatus();
+            
+            if (isSubscribed) {
+                // Unsubscribe
+                await window.pwaFunctions.unsubscribeFromPushNotifications();
+                statusEl.textContent = 'Enable Alerts';
+                showToast('Notifications disabled', 'info');
+            } else {
+                // Subscribe
+                const subscription = await window.pwaFunctions.subscribeToPushNotifications();
+                if (subscription) {
+                    statusEl.textContent = 'Disable Alerts';
+                    showToast('Notifications enabled! You will receive trading alerts', 'success');
+                } else {
+                    showToast('Failed to enable notifications. Please check permissions.', 'error');
+                }
+            }
+        }
+        
+        // Check notification status on load
+        window.addEventListener('load', async () => {
+            const statusEl = document.getElementById('notification-status');
+            const isSubscribed = await window.pwaFunctions.checkNotificationStatus();
+            if (isSubscribed) {
+                statusEl.textContent = 'Disable Alerts';
+            }
+        });
+        
+        // Toast notification helper
+        function showToast(message, type = 'info') {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500',
+                warning: 'bg-yellow-500'
+            };
+            
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
 </body>
 </html>

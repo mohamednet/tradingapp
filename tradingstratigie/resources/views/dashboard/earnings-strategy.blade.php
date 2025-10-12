@@ -256,6 +256,7 @@
                         <!-- Action Button -->
                         <div class="pt-4 border-t border-gray-100">
                             <button x-show="opportunity.eligible" 
+                                    @click="showDetails(opportunity)"
                                     class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md text-sm font-medium transition-colors duration-200">
                                 View Details
                             </button>
@@ -266,6 +267,115 @@
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Modal -->
+    <div x-show="showModal" 
+         x-cloak
+         @click.away="closeModal()"
+         class="fixed inset-0 z-50 overflow-y-auto" 
+         style="display: none;">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Background overlay -->
+            <div class="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" @click="closeModal()"></div>
+
+            <!-- Modal panel -->
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <!-- Header -->
+                    <div class="flex items-start justify-between mb-6">
+                        <div>
+                            <h3 class="text-2xl font-bold text-gray-900" x-text="selectedOpportunity?.symbol"></h3>
+                            <p class="text-sm text-gray-600" x-text="selectedOpportunity?.name"></p>
+                        </div>
+                        <button @click="closeModal()" class="text-gray-400 hover:text-gray-500">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+
+                    <!-- Confidence Badge -->
+                    <div class="mb-6">
+                        <span class="px-3 py-1 rounded-full text-sm font-medium border"
+                              :class="getConfidenceClass(selectedOpportunity?.confidence_rating)"
+                              x-text="selectedOpportunity?.confidence_rating"></span>
+                    </div>
+
+                    <!-- Key Metrics Grid -->
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Confidence Score</p>
+                            <p class="text-2xl font-bold text-gray-900" x-text="(selectedOpportunity?.confidence_score || 0).toFixed(1) + ' points'"></p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Days to Earnings</p>
+                            <p class="text-2xl font-bold text-gray-900" x-text="Math.round(selectedOpportunity?.days_until_earnings || 0) + ' days'"></p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Earnings Date</p>
+                            <p class="text-lg font-semibold text-gray-900" x-text="formatDate(selectedOpportunity?.earnings_date)"></p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-lg">
+                            <p class="text-sm text-gray-600 mb-1">Position Size</p>
+                            <p class="text-lg font-semibold text-gray-900" x-text="selectedOpportunity?.recommended_position_size || 'N/A'"></p>
+                        </div>
+                    </div>
+
+                    <!-- Supporting Factors -->
+                    <div x-show="selectedOpportunity?.supporting_factors && selectedOpportunity.supporting_factors.length > 0" class="mb-6">
+                        <h4 class="text-lg font-semibold text-gray-900 mb-3">
+                            <i class="fas fa-check-circle text-green-600 mr-2"></i>
+                            Supporting Factors
+                        </h4>
+                        <ul class="space-y-2">
+                            <template x-for="(factor, index) in (selectedOpportunity?.supporting_factors || [])" :key="'modal_factor_' + index">
+                                <li class="flex items-start text-sm text-gray-700">
+                                    <i class="fas fa-check text-green-500 mr-2 mt-1"></i>
+                                    <span x-text="factor"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    <!-- Risk Warnings -->
+                    <div x-show="selectedOpportunity?.risk_warnings && selectedOpportunity.risk_warnings.length > 0" class="mb-6">
+                        <h4 class="text-lg font-semibold text-gray-900 mb-3">
+                            <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                            Risk Warnings
+                        </h4>
+                        <ul class="space-y-2">
+                            <template x-for="(warning, index) in (selectedOpportunity?.risk_warnings || [])" :key="'modal_warning_' + index">
+                                <li class="flex items-start text-sm text-gray-700">
+                                    <i class="fas fa-exclamation-triangle text-red-500 mr-2 mt-1"></i>
+                                    <span x-text="warning"></span>
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+
+                    <!-- Strategy Recommendation -->
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h4 class="text-lg font-semibold text-blue-900 mb-2">
+                            <i class="fas fa-lightbulb mr-2"></i>
+                            Strategy Recommendation
+                        </h4>
+                        <p class="text-sm text-blue-800">
+                            Buy <strong x-text="selectedOpportunity?.symbol"></strong> 
+                            <strong x-text="Math.round(selectedOpportunity?.days_until_earnings || 0) + ' days'"></strong> before earnings 
+                            (around <strong x-text="formatDate(selectedOpportunity?.earnings_date)"></strong>). 
+                            Sell 1-3 days before the announcement to capture pre-earnings momentum while avoiding earnings volatility.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button @click="closeModal()" 
+                            class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm">
+                        Close
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -281,6 +391,8 @@ function earningsStrategy() {
         filteredData: [],
         summary: {},
         sortBy: 'confidence_score',
+        showModal: false,
+        selectedOpportunity: null,
         filters: {
             eligibility: 'all',
             confidence_rating: 'all',
@@ -419,6 +531,20 @@ function earningsStrategy() {
         formatDate(dateString) {
             if (!dateString) return 'N/A';
             return new Date(dateString).toLocaleDateString();
+        },
+
+        showDetails(opportunity) {
+            this.selectedOpportunity = opportunity;
+            this.showModal = true;
+            // Prevent body scroll when modal is open
+            document.body.style.overflow = 'hidden';
+        },
+
+        closeModal() {
+            this.showModal = false;
+            this.selectedOpportunity = null;
+            // Restore body scroll
+            document.body.style.overflow = '';
         }
     }
 }

@@ -39,4 +39,10 @@ return [
         'api_key' => env('FINNHUB_API_KEY'),
     ],
 
+    'webpush' => [
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+        'subject' => env('VAPID_SUBJECT', 'mailto:admin@example.com'),
+    ],
+
 ];

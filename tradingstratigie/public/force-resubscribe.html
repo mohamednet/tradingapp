@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Force Re-subscribe - Fix Notifications</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-2xl w-full bg-white rounded-lg shadow-lg p-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">🔧 Fix Push Notifications</h1>
+        
+        <div class="space-y-6">
+            <!-- Step 1 -->
+            <div class="border-l-4 border-blue-500 pl-4">
+                <h2 class="text-xl font-semibold mb-2">Step 1: Unsubscribe Old Subscription</h2>
+                <button onclick="unsubscribeOld()" 
+                        class="bg-red-500 text-white px-6 py-3 rounded-lg hover:bg-red-600 transition-colors">
+                    🗑️ Unsubscribe Old
+                </button>
+                <div id="step1-result" class="mt-2"></div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="border-l-4 border-green-500 pl-4">
+                <h2 class="text-xl font-semibold mb-2">Step 2: Subscribe with New Keys</h2>
+                <button onclick="subscribeNew()" 
+                        class="bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition-colors">
+                    ✅ Subscribe New
+                </button>
+                <div id="step2-result" class="mt-2"></div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="border-l-4 border-purple-500 pl-4">
+                <h2 class="text-xl font-semibold mb-2">Step 3: Test Notification</h2>
+                <button onclick="testNotification()" 
+                        class="bg-purple-500 text-white px-6 py-3 rounded-lg hover:bg-purple-600 transition-colors">
+                    🔔 Send Test Notification
+                </button>
+                <div id="step3-result" class="mt-2"></div>
+            </div>
+
+            <!-- Status -->
+            <div id="status" class="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h3 class="font-semibold mb-2">Current Status:</h3>
+                <div id="status-content" class="text-sm text-gray-600">
+                    Click "Unsubscribe Old" to start
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let swRegistration = null;
+
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => {
+                    swRegistration = reg;
+                    console.log('Service Worker registered');
+                    updateStatus();
+                })
+                .catch(err => console.error('SW registration failed:', err));
+        }
+
+        async function updateStatus() {
+            const statusDiv = document.getElementById('status-content');
+            
+            // Check notification permission
+            const permission = Notification.permission;
+            
+            // Check if subscribed
+            let isSubscribed = false;
+            if (swRegistration) {
+                const subscription = await swRegistration.pushManager.getSubscription();
+                isSubscribed = subscription !== null;
+            }
+            
+            statusDiv.innerHTML = `
+                <div class="space-y-1">
+                    <div>Notification Permission: <strong>${permission}</strong></div>
+                    <div>Service Worker: <strong>${swRegistration ? 'Registered' : 'Not Registered'}</strong></div>
+                    <div>Push Subscription: <strong>${isSubscribed ? 'Active' : 'None'}</strong></div>
+                </div>
+            `;
+        }
+
+        async function unsubscribeOld() {
+            const resultDiv = document.getElementById('step1-result');
+            resultDiv.innerHTML = '<div class="text-blue-600">⏳ Unsubscribing...</div>';
+
+            try {
+                if (!swRegistration) {
+                    throw new Error('Service Worker not registered');
+                }
+
+                // Get existing subscription
+                const subscription = await swRegistration.pushManager.getSubscription();
+                
+                if (subscription) {
+                    // Unsubscribe from push
+                    await subscription.unsubscribe();
+                    
+                    // Tell server to delete subscription
+                    await fetch('/api/push/unsubscribe', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            endpoint: subscription.endpoint
+                        })
+                    });
+                    
+                    resultDiv.innerHTML = '<div class="text-green-600 font-semibold">✅ Old subscription removed!</div>';
+                } else {
+                    resultDiv.innerHTML = '<div class="text-gray-600">ℹ️ No existing subscription found</div>';
+                }
+                
+                await updateStatus();
+            } catch (error) {
+                console.error('Unsubscribe error:', error);
+                resultDiv.innerHTML = `<div class="text-red-600">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function subscribeNew() {
+            const resultDiv = document.getElementById('step2-result');
+            resultDiv.innerHTML = '<div class="text-blue-600">⏳ Subscribing...</div>';
+
+            try {
+                // Request notification permission
+                const permission = await Notification.requestPermission();
+                
+                if (permission !== 'granted') {
+                    throw new Error('Notification permission denied');
+                }
+
+                // Get VAPID public key
+                const response = await fetch('/api/push/vapid-public-key');
+                const data = await response.json();
+                const vapidPublicKey = data.publicKey;
+
+                // Subscribe to push
+                const subscription = await swRegistration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+                });
+
+                // Send subscription to server
+                const subscribeResponse = await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(subscription)
+                });
+
+                if (subscribeResponse.ok) {
+                    resultDiv.innerHTML = '<div class="text-green-600 font-semibold">✅ Successfully subscribed with new keys!</div>';
+                } else {
+                    throw new Error('Server subscription failed');
+                }
+                
+                await updateStatus();
+            } catch (error) {
+                console.error('Subscribe error:', error);
+                resultDiv.innerHTML = `<div class="text-red-600">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        async function testNotification() {
+            const resultDiv = document.getElementById('step3-result');
+            resultDiv.innerHTML = '<div class="text-blue-600">⏳ Sending test notification...</div>';
+
+            try {
+                const response = await fetch('/api/test-notifications/send-test', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success && result.results.success > 0) {
+                    resultDiv.innerHTML = `
+                        <div class="text-green-600 font-semibold">
+                            ✅ Notification sent successfully!<br>
+                            <span class="text-sm">Check your Windows Action Center (bottom-right)</span>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="text-red-600">
+                            ❌ Failed to send: ${result.message || 'Unknown error'}<br>
+                            <span class="text-sm">Success: ${result.results?.success || 0}, Failed: ${result.results?.failed || 0}</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Test notification error:', error);
+                resultDiv.innerHTML = `<div class="text-red-600">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/\-/g, '+')
+                .replace(/_/g, '/');
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        // Update status on load
+        window.addEventListener('load', updateStatus);
+    </script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\CompanyController;
+use App\Http\Controllers\Api\PushNotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -17,6 +18,21 @@ use App\Http\Controllers\Api\CompanyController;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
+});
+
+// Push Notification Routes
+Route::prefix('push')->group(function () {
+    Route::get('/vapid-public-key', [PushNotificationController::class, 'getVapidPublicKey']);
+    Route::post('/subscribe', [PushNotificationController::class, 'subscribe']);
+    Route::post('/unsubscribe', [PushNotificationController::class, 'unsubscribe']);
+    Route::post('/test', [PushNotificationController::class, 'sendTestNotification']);
+});
+
+// Test Notification Routes
+Route::prefix('test-notifications')->group(function () {
+    Route::get('/opportunities', [\App\Http\Controllers\TestNotificationController::class, 'getOpportunities']);
+    Route::post('/send-test', [\App\Http\Controllers\TestNotificationController::class, 'sendTestToAll']);
+    Route::post('/send-opportunities', [\App\Http\Controllers\TestNotificationController::class, 'sendOpportunityNotifications']);
 });
 
 // Company API Routes
