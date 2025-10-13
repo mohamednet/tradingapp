@@ -180,8 +180,18 @@ class DataScrapingService
             // Extract price from API response
             $meta = $quoteData['chart']['result'][0]['meta'];
             $currentPrice = $meta['regularMarketPrice'];
-            $marketCap = $meta['marketCap'] ?? null;
             $volume = $meta['regularMarketVolume'] ?? null;
+            
+            // Get market cap from statistics endpoint (quote doesn't have it)
+            $marketCap = null;
+            try {
+                $statsData = $this->yahooService->getStatistics($company->symbol);
+                if ($statsData && isset($statsData['quoteSummary']['result'][0]['summaryDetail']['marketCap']['raw'])) {
+                    $marketCap = $statsData['quoteSummary']['result'][0]['summaryDetail']['marketCap']['raw'];
+                }
+            } catch (\Exception $e) {
+                Log::debug("Could not fetch market cap for {$company->symbol}");
+            }
             
             // Get historical data for performance calculation
             $historicalData = $this->yahooService->getHistoricalData($company->symbol, 30);
