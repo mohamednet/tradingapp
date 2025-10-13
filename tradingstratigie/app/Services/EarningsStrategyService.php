@@ -140,8 +140,8 @@ class EarningsStrategyService
             ];
         }
 
-        // Liquidity Check
-        if ($financial->market_cap < 2000000000) { // $2B
+        // Liquidity Check - skip if market cap is null (API limitation)
+        if ($financial->market_cap && $financial->market_cap < 2000000000) { // $2B
             $reasons[] = 'Market cap below $2B (' . number_format($financial->market_cap / 1000000000, 2) . 'B)';
             $eligible = false;
         }
