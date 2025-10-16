@@ -208,7 +208,7 @@ class YahooScrapingService
     }
 
     /**
-     * Parse HTML content to extract stock data
+     * Parse HTML content to extract stock data using fin-streamer tags
      */
     private function parseStockData(string $html, string $symbol): array
     {
@@ -226,47 +226,34 @@ class YahooScrapingService
             'scraped_at' => now()
         ];
 
-        // Extract data using data-symbol pattern (works with current Yahoo structure)
-        if (preg_match_all('/data-symbol="' . $symbol . '"[^>]*>([^<]+)</', $html, $matches)) {
-            $values = $matches[1];
-            
-            // Based on the pattern, values are typically in this order:
-            // [0] = current price, [1] = high, [2] = range, [3] = 52w range, [4] = volume, [5] = avg volume, [6] = market cap, etc.
-            if (isset($values[0])) {
-                $data['current_price'] = $this->cleanNumber($values[0]);
-            }
-            if (isset($values[6])) {
-                $data['market_cap'] = $this->parseMarketCap($values[6]);
-            }
-            if (isset($values[4])) {
-                $data['volume'] = $this->cleanNumber($values[4]);
-            }
+        // Extract price from fin-streamer tag
+        if (preg_match('/<fin-streamer[^>]*data-field="regularMarketPrice"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['current_price'] = (float) $matches[1];
         }
 
-        // Extract 52-week range from data-symbol matches
-        if (preg_match_all('/data-symbol="' . $symbol . '"[^>]*>([^<]+)</', $html, $matches)) {
-            foreach ($matches[1] as $value) {
-                if (strpos($value, ' - ') !== false && strpos($value, '.') !== false) {
-                    $range = explode(' - ', $value);
-                    if (count($range) === 2) {
-                        $low = $this->cleanNumber($range[0]);
-                        $high = $this->cleanNumber($range[1]);
-                        
-                        // Determine if this is 52-week range (wider range) or daily range
-                        if ($low && $high && ($high - $low) > 50) {
-                            $data['fifty_two_week_low'] = $low;
-                            $data['fifty_two_week_high'] = $high;
-                        }
-                    }
-                }
-            }
+        // Extract market cap from fin-streamer tag
+        if (preg_match('/<fin-streamer[^>]*data-field="marketCap"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['market_cap'] = (float) $matches[1];
         }
 
-        // Try alternative selectors for missing data
-        if (!$data['current_price']) {
-            if (preg_match('/<fin-streamer[^>]*data-field="regularMarketPrice"[^>]*>([^<]+)</', $html, $matches)) {
-                $data['current_price'] = $this->cleanNumber($matches[1]);
-            }
+        // Extract volume from fin-streamer tag
+        if (preg_match('/<fin-streamer[^>]*data-field="regularMarketVolume"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['volume'] = (float) $matches[1];
+        }
+
+        // Extract 52-week high
+        if (preg_match('/<fin-streamer[^>]*data-field="fiftyTwoWeekHigh"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['fifty_two_week_high'] = (float) $matches[1];
+        }
+
+        // Extract 52-week low
+        if (preg_match('/<fin-streamer[^>]*data-field="fiftyTwoWeekLow"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['fifty_two_week_low'] = (float) $matches[1];
+        }
+
+        // Extract PE ratio
+        if (preg_match('/<fin-streamer[^>]*data-field="trailingPE"[^>]*data-value="([^"]+)"/', $html, $matches)) {
+            $data['pe_ratio'] = (float) $matches[1];
         }
 
         return $data;

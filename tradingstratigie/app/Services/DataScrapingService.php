@@ -93,28 +93,44 @@ class DataScrapingService
     }
 
     /**
-     * Update earnings data using Yahoo Finance
+     * Update earnings data using Finnhub API + Yahoo Finance fallback
      */
     private function updateEarningsData(Company $company): void
     {
         try {
-            // Use Yahoo Finance scraping for earnings dates
-            $scrapingService = new \App\Services\YahooScrapingService();
-            $earningsData = $scrapingService->scrapeEarningsDate($company->symbol);
+            // Try to get earnings from Finnhub first
+            $finnhubEarnings = $this->finnhubService->getEarnings($company->symbol);
             
-            if (!$earningsData) {
-                Log::info("No upcoming earnings date found for {$company->symbol}");
+            $earningsDate = null;
+            $estimatedRevenue = null;
+            
+            // Check if Finnhub has upcoming earnings
+            if ($finnhubEarnings && isset($finnhubEarnings['earningsCalendar']) && count($finnhubEarnings['earningsCalendar']) > 0) {
+                $nextEarning = $finnhubEarnings['earningsCalendar'][0];
+                $earningsDate = $nextEarning['date'] ?? null;
                 
-                // Delete old earnings records that are in the past
-                $this->cleanupOldEarnings($company);
-                return;
+                // Finnhub doesn't provide revenue estimates directly, get from estimates API
+                $estimatesData = $this->finnhubService->getEarningsEstimates($company->symbol);
+                
+                if ($earningsDate) {
+                    $this->saveEarningRecordFromFinnhub($company, $nextEarning, $estimatesData);
+                    Log::info("Updated earnings record for {$company->symbol}: {$earningsDate}");
+                }
             }
-
-            // Get earnings estimates from Finnhub for additional context
-            $estimatesData = $this->finnhubService->getEarningsEstimates($company->symbol);
-
-            // Save the earnings record
-            $this->saveEarningRecordFromYahoo($company, $earningsData, $estimatesData);
+            
+            // Fallback to Yahoo Finance scraping if Finnhub doesn't have data
+            if (!$earningsDate) {
+                $scrapingService = new \App\Services\YahooScrapingService();
+                $earningsData = $scrapingService->scrapeEarningsDate($company->symbol);
+                
+                if ($earningsData) {
+                    $estimatesData = $this->finnhubService->getEarningsEstimates($company->symbol);
+                    $this->saveEarningRecordFromYahoo($company, $earningsData, $estimatesData);
+                    Log::info("Updated earnings record for {$company->symbol} from Yahoo: {$earningsData['earnings_date']}");
+                } else {
+                    Log::info("No upcoming earnings date found for {$company->symbol}");
+                }
+            }
             
             // Clean up old earnings records
             $this->cleanupOldEarnings($company);
@@ -162,70 +178,64 @@ class DataScrapingService
     }
 
     /**
-     * Update financial data for a company using Yahoo Finance API
+     * Update financial data for a company using Finnhub API + Yahoo scraping
      */
     private function updateFinancialData(Company $company): void
     {
         $startTime = microtime(true);
         
         try {
-            // Use Yahoo Finance API for accurate data
-            $quoteData = $this->yahooService->getQuote($company->symbol);
+            // Get all data from Finnhub
+            $finnhubData = $this->finnhubService->getAllCompanyData($company->symbol);
             
-            if (!$quoteData || !isset($quoteData['chart']['result'][0]['meta']['regularMarketPrice'])) {
-                Log::warning("No quote data found for {$company->symbol}");
-                return;
+            // Extract data from Finnhub
+            $currentPrice = $finnhubData['quote']['c'] ?? null;
+            $previousClose = $finnhubData['quote']['pc'] ?? null;
+            $marketCap = isset($finnhubData['profile']['marketCapitalization']) 
+                ? $finnhubData['profile']['marketCapitalization'] * 1000000 
+                : null;
+            $volume = $finnhubData['metrics']['metric']['10DayAverageTradingVolume'] ?? null;
+            
+            // Calculate 1-week performance from current vs previous close
+            $pricePerformance1Week = null;
+            if ($currentPrice && $previousClose && $previousClose > 0) {
+                $pricePerformance1Week = (($currentPrice - $previousClose) / $previousClose) * 100;
             }
             
-            // Extract price from API response
-            $meta = $quoteData['chart']['result'][0]['meta'];
-            $currentPrice = $meta['regularMarketPrice'];
-            $volume = $meta['regularMarketVolume'] ?? null;
+            // Get additional data from Yahoo scraping for fields Finnhub doesn't have
+            $scrapingService = new \App\Services\YahooScrapingService();
             
-            // Get market cap from statistics endpoint (quote doesn't have it)
-            $marketCap = null;
+            // Get analyst data (fair value estimate)
+            $analystData = $scrapingService->scrapeAnalystData($company->symbol);
+            $fairValueEstimate = $analystData['price_target_mean'] ?? null;
+            
+            // Calculate 1-month performance from Yahoo historical data
+            $pricePerformance1Month = null;
             try {
-                $statsData = $this->yahooService->getStatistics($company->symbol);
-                if ($statsData && isset($statsData['quoteSummary']['result'][0]['summaryDetail']['marketCap']['raw'])) {
-                    $marketCap = $statsData['quoteSummary']['result'][0]['summaryDetail']['marketCap']['raw'];
-                }
+                $performance = $scrapingService->calculatePricePerformance($company->symbol, $currentPrice);
+                $pricePerformance1Month = $performance['price_performance_1month'] ?? null;
             } catch (\Exception $e) {
-                Log::debug("Could not fetch market cap for {$company->symbol}");
+                Log::debug("Could not calculate 1-month performance for {$company->symbol}");
             }
             
-            // Get historical data for performance calculation
-            $historicalData = $this->yahooService->getHistoricalData($company->symbol, 30);
-            
-            $performance = [];
-            if ($historicalData) {
-                $performance['price_performance_1week'] = $this->yahooService->calculatePricePerformance($historicalData, 7);
-                $performance['price_performance_1month'] = $this->yahooService->calculatePricePerformance($historicalData, 30);
-            }
-            
-            // Try to get analyst data (may fail due to auth)
-            $priceTarget = null;
-            try {
-                $analystData = $this->yahooService->getAnalystData($company->symbol);
-                if ($analystData && isset($analystData['quoteSummary']['result'][0]['financialData']['targetMeanPrice']['raw'])) {
-                    $priceTarget = $analystData['quoteSummary']['result'][0]['financialData']['targetMeanPrice']['raw'];
-                }
-            } catch (\Exception $e) {
-                // Analyst data is optional, continue without it
-                Log::debug("Could not fetch analyst data for {$company->symbol} (optional)");
-            }
-            
-            // Prepare stock data array
+            // Prepare data for saving
             $stockData = [
                 'current_price' => $currentPrice,
                 'market_cap' => $marketCap,
                 'volume' => $volume
             ];
             
-            $analystDataArray = [
-                'price_target_mean' => $priceTarget
+            $performanceData = [
+                'price_performance_1week' => $pricePerformance1Week,
+                'price_performance_1month' => $pricePerformance1Month
             ];
             
-            $this->saveScrapedFinancialData($company, $stockData, $analystDataArray, $performance);
+            $analystDataArray = [
+                'price_target_mean' => $fairValueEstimate
+            ];
+            
+            // Save with Finnhub data included
+            $this->saveScrapedFinancialData($company, $stockData, $analystDataArray, $performanceData, $finnhubData);
             
             $executionTime = microtime(true) - $startTime;
             $this->logScrapingSuccess($company, 'financial_data', $executionTime);
@@ -240,7 +250,7 @@ class DataScrapingService
     /**
      * Save scraped financial data to database
      */
-    private function saveScrapedFinancialData(Company $company, ?array $stockData, ?array $analystData, array $performance): void
+    private function saveScrapedFinancialData(Company $company, ?array $stockData, ?array $analystData, array $performance, ?array $finnhubData = null): void
     {
         // Get existing record for this company (regardless of date)
         $existingData = CompanyFinancialData::where('company_id', $company->id)->first();
@@ -254,6 +264,7 @@ class DataScrapingService
             'price_performance_1month' => $performance['price_performance_1month'] ?? null,
             'fair_value_estimate' => $analystData['price_target_mean'] ?? null,
             'data_sources' => [
+                'finnhub_data' => $finnhubData,
                 'scraped_stock_data' => $stockData,
                 'scraped_analyst_data' => $analystData,
                 'performance_data' => $performance
@@ -264,11 +275,17 @@ class DataScrapingService
         if ($existingData) {
             // Update existing record with fresh data
             $existingData->update($data);
-            \Log::info("Updated financial data for {$company->symbol}", ['price' => $data['current_stock_price']]);
+            \Log::info("Updated financial data for {$company->symbol}", [
+                'price' => $data['current_stock_price'],
+                'market_cap' => $data['market_cap'] ? '$' . number_format($data['market_cap'] / 1000000000, 2) . 'B' : 'NULL'
+            ]);
         } else {
             // Create new record
             CompanyFinancialData::create($data);
-            \Log::info("Created financial data for {$company->symbol}", ['price' => $data['current_stock_price']]);
+            \Log::info("Created financial data for {$company->symbol}", [
+                'price' => $data['current_stock_price'],
+                'market_cap' => $data['market_cap'] ? '$' . number_format($data['market_cap'] / 1000000000, 2) . 'B' : 'NULL'
+            ]);
         }
     }
 
@@ -305,9 +322,9 @@ class DataScrapingService
     }
 
     /**
-     * Save earnings record to database (legacy Finnhub method - kept for compatibility)
+     * Save earnings record from Finnhub
      */
-    private function saveEarningRecord(Company $company, array $earningData, ?array $estimatesData): void
+    private function saveEarningRecordFromFinnhub(Company $company, array $earningData, ?array $estimatesData): void
     {
         $earningsDate = isset($earningData['date']) ? Carbon::parse($earningData['date']) : null;
         
